@@ -1,47 +1,47 @@
-﻿# MaxOps MCP Client v1
+# MaxOps MCP Client v2 (Multi-Server Hub)
 
-> An interactive terminal AI agent that connects **Groq LLMs** to your local machine through the **Model Context Protocol (MCP)**.
-
----
-
-## What is this?
-
-This is a command-line AI assistant that can actually **do things** on your computer — not just chat.
-
-It works by connecting two systems together:
-
-- **Groq** — a super-fast AI inference platform that runs large language models (like GPT-class models)
-- **MCP (Model Context Protocol)** — a standard that lets AI models talk to tools running on your machine (read files, write files, run commands, etc.)
-
-When you type a message, the AI decides whether it needs to use a tool (like reading a file or running a command), calls that tool through the MCP server, and then gives you a real answer based on the result.
+> An interactive terminal AI agent that orchestrates **multiple Model Context Protocol (MCP) servers** and connects them to **Groq LLMs** (`llama-3.3-70b-versatile`) with dynamic routing, ReAct synthesis, and strict security guardrails.
 
 ---
 
-## What can it do?
+## What is Version 2?
 
-| Tool | What it does | Requires approval? |
-|---|---|---|
-| `list_workspace` | Lists files in your workspace folder | No (auto) |
-| `read_file` | Reads the content of any file | No (auto) |
-| `write_file` | Creates or overwrites a file | **Yes — asks you first** |
-| `execute_command` | Runs a terminal command | **Yes — asks you first** |
+**Version 2** upgrades the client from a single-server terminal runner to a **Multi-Server MCP Orchestrator Hub**.
 
-The client also has **built-in security**:
-- Blocks writing dangerous file types (`.exe`, `.bat`, `.ps1`, etc.)
-- Detects and blocks malicious code patterns before writing files
-- Asks for your approval before any state-changing action
-- Stops automatically if the AI gets stuck in a loop (max 10 tool steps)
-- Keeps conversation history trimmed to avoid token overflow
+Instead of hardcoded server configurations, Version 2 dynamically discovers and communicates with any number of MCP servers defined in `servers_config.json`:
+- **Workspace Manager** (`terminal_server`) — inspects files, edits workspace files, and executes shell commands.
+- **Jira MCP Server** (`jira-mcp-server`) — searches issues, inspects ticket details, creates and transitions Jira issues.
+
+When you send a prompt, Groq automatically determines which server hosts the relevant tool, routes the request to that server's active session, and returns synthesized answers.
 
 ---
 
-## Requirements
+## Key Features
 
-Before you start, make sure you have these installed:
+- **Multi-Server Lifecycle (`AsyncExitStack`)**: Connects to and initializes all configured MCP servers cleanly, closing subprocesses upon exit without orphan processes.
+- **Dynamic Tool Routing**: Aggregates tools from all servers into a unified OpenAI/Groq function-calling palette tagged with server metadata (`[{server_name}] {description}`).
+- **Interactive Terminal UI**: Styled ASCII art logo and box-drawing status dashboard displaying model, active servers, discovered tools, and read/write badges.
+- **Security & Safety Guardrails**:
+  - **Malicious Content & Extension Filter**: Blocks dangerous executable extensions (`.exe`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.reg`, `.dll`) and suspicious signatures (`base64.b64decode`, `exec(`, `eval(`, `socket.socket`, etc.) during file writing.
+  - **Human-in-the-Loop (HITL) Gate**: Requires interactive operator confirmation `(y/n)` for state-modifying actions (`write_file`, `execute_command`, or any tool containing `create`, `delete`, or `update`).
+  - **Loop Runaway Guard**: Caps chained tool calls at `MAX_TOOL_STEPS = 10` per user turn.
+  - **Context Window Protection**: Automatically bounds history to the last 25 messages to prevent token limits from overflowing.
 
-- **Python 3.13+** — [Download here](https://www.python.org/downloads/)
-- **uv** (Python package manager) — [Install here](https://docs.astral.sh/uv/getting-started/installation/)
-- **A Groq API key** — [Get one free at console.groq.com](https://console.groq.com)
+---
+
+## Discovered Tools Matrix
+
+| Server | Tool | Type | Requires Approval (HITL)? |
+|---|---|---|---|
+| **`workspace-manager`** | `list_workspace` | `[read]` | No (auto) |
+| | `read_file` | `[read]` | No (auto) |
+| | `write_file` | `[write]` | **Yes — asks before saving** |
+| | `execute_command` | `[write]` | **Yes — asks before running** |
+| **`jira-mcp-server`** | `search_issues` | `[read]` | No (auto) |
+| | `get_issue` | `[read]` | No (auto) |
+| | `create_issue` | `[write]` | **Yes — asks before creating** |
+| | `update_issue` | `[write]` | **Yes — asks before updating** |
+| | `transition_issue` | `[read/write]` | No / as configured |
 
 ---
 
@@ -49,147 +49,124 @@ Before you start, make sure you have these installed:
 
 ```
 groq_client/
-├── client.py          ← Main client (this is what you run)
-├── .env               ← Your secret API key goes here
-├── pyproject.toml     ← Python dependencies
-└── README.md          ← This file
-```
-
-The MCP server (the tool provider) lives separately at:
-```
-D:\mcp\servers\terminal_server\
-└── server.py          ← MCP server exposing tools to the client
+├── servers_config.json   ← Multi-server configuration file
+├── client.py             ← v2 Multi-Server orchestrator & CLI
+├── pyproject.toml        ← Python dependencies managed by uv
+├── .env                  ← Groq API key and environment variables
+└── README.md             ← Documentation
 ```
 
 ---
 
-## Setup (Step by Step)
+## Quickstart
 
-### 1. Clone or download the project
+### 1. Prerequisites
+- **Python 3.13+**
+- **uv** package manager (`pip install uv` or install via Astral docs)
+- **Groq API Key** from [console.groq.com](https://console.groq.com)
 
-```bash
-# If using git
-git clone <your-repo-url>
-cd groq_client
-```
+### 2. Configure Environment
+Create or edit your `.env` file in `d:\mcp\clients\groq_client`:
 
-### 2. Add your Groq API key
-
-Open the `.env` file (or create it) and add:
-
-```
+```env
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# Optional overrides:
+GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_FALLBACK_MODEL=openai/gpt-oss-120b
 ```
 
-Get your key from [console.groq.com](https://console.groq.com) → API Keys → Create API Key.
+### 3. Configure Servers (`servers_config.json`)
+Define your MCP servers in `servers_config.json`:
 
-### 3. Install dependencies
+```json
+{
+  "mcpServers": {
+    "workspace-manager": {
+      "command": "C:\\Users\\akash\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uv.exe",
+      "args": [
+        "--directory",
+        "D:\\mcp\\servers\\terminal_server",
+        "run",
+        "server.py"
+      ]
+    },
+    "jira-mcp-server": {
+      "command": "C:\\Users\\akash\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uv.exe",
+      "args": [
+        "--directory",
+        "D:\\mcp\\servers\\jira-mcp-server",
+        "run",
+        "main.py"
+      ]
+    }
+  }
+}
+```
 
+> **Note**: If the full path to `uv.exe` is not found, the client automatically falls back to system PATH `uv`.
+
+### 4. Sync Dependencies
 ```bash
 uv sync
 ```
 
-This installs `groq`, `mcp`, and `python-dotenv` automatically.
-
-### 4. Check your uv path (Windows only)
-
-Open `client.py` and check line 28:
-
-```python
-UV_EXECUTABLE = r"C:\Users\akash\AppData\Local\Programs\Python\Python313\Scripts\uv.exe"
-```
-
-Change `akash` to your Windows username, or just set it to `"uv"` if uv is already on your PATH.
-
-### 5. Check your MCP server path
-
-On line 37, make sure this path points to your MCP server folder:
-
-```python
-r"D:\mcp\servers\terminal_server"
-```
-
-Update it to wherever your `server.py` lives.
-
-### 6. Run the client
-
+### 5. Launch Client
 ```bash
 uv run client.py
 ```
 
-You should see the MaxOps banner and a `You:` prompt.
-
 ---
 
-## How to use it
+## Example Usage
 
-Just type naturally. Some examples:
+Once launched, prompt the assistant naturally across any server domain:
 
-```
-You: list all files in my workspace
-You: read the file called notes.txt
-You: create a file called hello.txt with the message "Hello World"
-You: what is 2 + 2
-You: run the command "echo hello"
+```text
+You: list all files in the current workspace
+⚡ [Tool] list_workspace (via workspace-manager) | Args: {"subpath": "."}
+
+You: search for Jira tickets in project DEV with status 'To Do'
+⚡ [Tool] search_issues (via jira-mcp-server) | Args: {"jql": "project = DEV AND status = 'To Do'"}
+
+You: create a Jira ticket with summary "Fix authentication timeout"
+⚠️  [Approval Required] Allow 'create_issue' on 'jira-mcp-server'? (y/n): y
+⚡ [Tool] create_issue (via jira-mcp-server) | Args: {...}
+
 You: exit
+Closing connections... Goodbye!
 ```
-
-When the AI wants to write a file or run a command, it will **pause and ask you**:
-
-```
-⚠ Warning  Approval Required  Allow 'write_file'? (y/n): 
-```
-
-Type `y` to allow or `n` to cancel.
 
 ---
 
-## Changing the AI model
-
-Open `client.py` and edit line 45:
-
-```python
-GROQ_MODEL = "openai/gpt-oss-120b"   # change this to any model on your Groq account
-```
-
-To see what models are available on your account, log in to [console.groq.com](https://console.groq.com).
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `GROQ_API_KEY is not set` | Add your key to the `.env` file |
-| `Could not start the MCP server` | Check the `uv.exe` path and server directory path in `client.py` |
-| `Tool object has no attribute inputSchema` | Make sure your `mcp` package is version `>=2.3.0` (run `uv sync`) |
-| Banner characters look broken | Use a terminal with UTF-8 support (Windows Terminal, VS Code terminal) |
-
----
-
-## Security Model
+## Security Architecture
 
 ```
-User Input
+User Prompt
     │
     ▼
-Groq LLM decides tool to call
+Groq LLM (llama-3.3-70b-versatile)
+    │
+    ▼ (Decides Tool Call)
+Tool Router (Identifies owning server)
+    │
+    ├── 1. Malware & Dangerous Extension Filter
+    │       (Blocks .exe, .bat, base64 eval, socket patterns)
+    │
+    ├── 2. Human-in-the-Loop (HITL) Gate
+    │       (Prompts user confirmation for state-modifying actions)
     │
     ▼
-validate_tool_call()  ←── blocks bad file types & malware signatures
+Target MCP Server (`session.call_tool`)
     │
     ▼
-hitl_confirm()        ←── asks YOU before write/execute runs
+Result Appended with role="tool"
     │
     ▼
-MCP Server executes the tool
-    │
-    ▼
-Result returned to Groq → Final answer to you
+Groq LLM Synthesizes Final Answer
 ```
 
 ---
 
 ## License
 
-MIT — use it, modify it, share it.
+MIT — feel free to use, modify, and build upon.
