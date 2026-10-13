@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "workspace-manager": {
+      "command": "C:\\Users\\akash\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uv.exe",
+      "args": [
+        "--directory",
+        "D:\\mcp\\servers\\terminal_server",
+        "run",
+        "server.py"
+      ]
+    },
+    "jira-mcp-server": {
+      "command": "C:\\Users\\akash\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uv.exe",
+      "args": [
+        "--directory",
+        "D:\\mcp\\servers\\jira-mcp-server",
+        "run",
+        "main.py"
+      ]
+    }
+  }
+}
